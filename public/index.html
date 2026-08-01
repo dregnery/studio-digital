@@ -194,6 +194,8 @@
       <dl class="kv">
         <dt>Fiche Google</dt><dd><input class="addr" id="s-channel_g" readonly></dd>
         <dt>Blog Webflow</dt><dd><input class="addr" id="s-channel_web"></dd>
+        <dt>Webador Transac'Immo</dt><dd><input class="addr" id="s-channel_wbt"></dd>
+        <dt>Webador Paola Montana</dt><dd><input class="addr" id="s-channel_wbp"></dd>
         <dt>Page Facebook</dt><dd><input class="addr" id="s-channel_fb" placeholder="https://www.facebook.com/votre-page"></dd>
         <dt>Instagram</dt><dd><input class="addr" id="s-channel_ig" placeholder="@votre_compte"></dd>
         <dt>LinkedIn</dt><dd><input class="addr" id="s-channel_in" placeholder="https://www.linkedin.com/in/..."></dd>
@@ -307,13 +309,13 @@ function openDetail(id){
         </div>`).join('')}
       <div class="actions">
         ${p.status==='published'
-          ?`<button class="btn btn-ok" onclick="approvePub('${p.id}')">✓ Publier sur les canaux ajoutés</button>`
+          ?`<button class="btn btn-ok" onclick="approvePub('${p.id}')">✓ Appliquer (canaux ajoutés + modifications)</button>`
           :`<button class="btn btn-ok" onclick="approvePub('${p.id}')">✓ Valider pour publication</button>`}
         <button class="btn btn-primary" onclick="savePub('${p.id}')">Enregistrer mes modifications</button>
         <button class="btn btn-ghost" onclick="delPub('${p.id}')">Supprimer</button>
       </div>
       <div class="notice">${p.status==='published'
-        ?'Cette publication est déjà partie sur certains canaux. Cochez-en d\'autres et cliquez « Publier sur les canaux ajoutés » : Claude publiera uniquement sur les nouveaux supports.'
+        ?'Publication déjà partie : modifiez librement les textes et/ou cochez de nouveaux canaux, puis « Appliquer » — Claude mettra à jour les supports déjà publiés avec vos modifications et publiera sur les canaux ajoutés (au passage quotidien de 10h30, ou à votre demande).'
         :'« Enregistrer » garde vos retouches en brouillon. « Valider » signale à Claude que ce pack est bon — il le publiera sur les canaux cochés, puis le statut passera à « Publié ».'}</div>
     </div>`;
   $('#view-pubs').classList.add('hidden');$('#view-detail').classList.remove('hidden');window.scrollTo({top:0});
@@ -411,13 +413,13 @@ dz.addEventListener('drop',ev=>uploadFiles(ev.dataTransfer.files));
 
 // ---------- Paramètres ----------
 function renderSettings(){
-  for(const k of ['channel_g','channel_web','channel_fb','channel_ig','channel_in','frequency','keywords']){
+  for(const k of ['channel_g','channel_web','channel_wbt','channel_wbp','channel_fb','channel_ig','channel_in','frequency','keywords']){
     const el=$('#s-'+k);if(el)el.value=STATE.settings[k]||'';
   }
 }
 async function saveSettings(){
   const b={};
-  for(const k of ['channel_web','channel_fb','channel_ig','channel_in','frequency','keywords']){
+  for(const k of ['channel_web','channel_wbt','channel_wbp','channel_fb','channel_ig','channel_in','frequency','keywords']){
     const el=$('#s-'+k);if(el)b[k]=el.value;
   }
   await api('settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
