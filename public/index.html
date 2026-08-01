@@ -442,7 +442,7 @@ function renderAnnonceForm(){
     <dl class="kv" style="grid-template-columns:180px 1fr">
       <dt>Titre de l'annonce *</dt><dd><input class="addr" id="an-name" placeholder="Maison 5 pièces avec jardin — Saint-Égrève La Monta"></dd>
       <dt>Type de bien *</dt><dd><select class="addr" id="an-type">${opt(WF.refs.type)}</select></dd>
-      <dt>Ville *</dt><dd><select class="addr" id="an-ville">${opt(WF.refs.ville)}</select></dd>
+      <dt>Ville *</dt><dd><select class="addr" id="an-ville" onchange="if(this.value==='__new__')newVille()">${opt(WF.refs.ville)}<option value="__new__">＋ Ajouter une ville...</option></select></dd>
       <dt>Prix (€) *</dt><dd><input class="addr" id="an-prix" type="number" placeholder="395000"></dd>
       <dt>Surface</dt><dd><input class="addr" id="an-surface" placeholder="120 m²"></dd>
       <dt>Adresse / secteur</dt><dd><input class="addr" id="an-adresse" placeholder="Quartier La Monta"></dd>
@@ -466,6 +466,24 @@ async function renderAnnonceList(){
       <span class="theme-tag">${i.isDraft?'Brouillon':'En ligne'}</span></div>`).join(''):'<div class="spin">Aucune annonce.</div>';
 }
 const slugify=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
+async function newVille(){
+  const sel=document.getElementById('an-ville');
+  const nom=prompt('Nom de la nouvelle ville :');
+  if(!nom){sel.value='';return;}
+  const cols=(await wfFetch('sites/'+WF.siteId+'/collections')).collections;
+  const villeCol=cols.find(c=>c.slug==='ville');
+  const res=await wfFetch('collections/'+villeCol.id+'/items/live',{method:'POST',body:JSON.stringify({isDraft:false,isArchived:false,fieldData:{name:nom.trim(),slug:slugify(nom)}})});
+  if(res.id){
+    WF.refs.ville.push({id:res.id,name:nom.trim()});
+    const o=document.createElement('option');o.value=res.id;o.textContent=nom.trim();
+    sel.insertBefore(o,sel.querySelector('option[value="__new__"]'));
+    sel.value=res.id;
+    toast('Ville « '+nom.trim()+' » créée sur votre site ✓');
+  }else{
+    sel.value='';
+    toast('Erreur : '+JSON.stringify(res.details||res.message).slice(0,120));
+  }
+}
 async function publishAnnonce(){
   const v=id=>document.getElementById(id).value.trim();
   const name=v('an-name'), prix=Number(v('an-prix')), ville=v('an-ville'), type=v('an-type'), photo=v('an-photo'), desc=v('an-desc');
