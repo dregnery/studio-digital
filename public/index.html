@@ -459,7 +459,7 @@ function anValues(){
   const v=id=>{const el=document.getElementById(id);return el?el.value:'';};
   return {name:v('an-name'),type:v('an-type'),statut:v('an-statut'),ville:v('an-ville'),prix:v('an-prix'),surface:v('an-surface'),
     adresse:v('an-adresse'),desc:v('an-desc'),resume:v('an-resume'),cond:v('an-cond'),
-    agent:v('an-agent'),photo:v('an-photo'),gal:[...document.querySelectorAll('.an-gal')].map(s=>s.value),
+    agent:v('an-agent'),photo:v('an-photo'),gal:AN_GAL.slice(),
     av:[...document.querySelectorAll('.an-av:checked')].map(c=>c.value)};
 }
 async function saveAnnonceDraft(){
@@ -499,6 +499,7 @@ async function deleteDraft(id){
 function renderAnnonceForm(d){
   if(!d)AN_EDIT_ID=null;
   d=d||{};
+  AN_GAL=(d.gal||[]).filter(Boolean).slice(0,15);
   const ph=STATE.photos;
   $('#annonce-form-zone').innerHTML=`
     <dl class="kv" style="grid-template-columns:180px 1fr">
@@ -530,12 +531,18 @@ function renderAnnonceForm(d){
         <div style="margin-top:6px"><button class="btn btn-ghost" style="padding:7px 13px;font-size:12.5px" onclick="document.getElementById('an-file').click()">📁 Importer depuis mon ordinateur</button>
         <input id="an-file" type="file" accept="image/*" multiple class="hidden" onchange="uploadForAnnonce(this.files)">
         <span id="an-upload-status" style="font-size:12px;color:var(--ink-2);margin-left:8px"></span></div></dd>
-      <dt>Galerie (jusqu'à 3)</dt><dd>${[1,2,3].map((i,ix)=>`
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-          <select class="addr an-gal" style="flex:1">${'<option value="">— photo '+i+' (optionnel) —</option>'+ph.map(p=>`<option value="${p.key}" ${(d.gal||[])[ix]===p.key?'selected':''}>${esc(p.label||p.name)}</option>`).join('')}</select>
-          <button class="btn btn-ghost" style="padding:8px 11px;font-size:12px;white-space:nowrap" onclick="document.getElementById('an-gal-file-${ix}').click()">📁 Ordinateur</button>
-          <input id="an-gal-file-${ix}" type="file" accept="image/*" class="hidden" onchange="uploadForGallery(this,${ix})">
-        </div>`).join('')}</dd>
+      <dt>Galerie (jusqu'à 15)</dt><dd>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+          <button class="btn btn-ghost" style="padding:8px 12px;font-size:12.5px" onclick="document.getElementById('an-gal-files').click()">📁 Ajouter depuis l'ordinateur</button>
+          <input id="an-gal-files" type="file" accept="image/*" multiple class="hidden" onchange="galAddFiles(this.files)">
+          <select class="addr" id="an-gal-pick" style="width:auto;max-width:260px" onchange="galAddKey(this.value);this.value=''">
+            <option value="">＋ depuis la médiathèque...</option>
+            ${ph.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('')}
+          </select>
+          <span id="an-gal-status" style="font-size:12px;color:var(--ink-2)"></span>
+        </div>
+        <div id="an-gal-chips" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      </dd>
     </dl>
     <p id="an-edit-note" class="hidden" style="font-size:12.5px;color:#1d4f7c;background:#e3effb;border:1px solid #cfe4f7;border-radius:10px;padding:9px 12px;margin-bottom:10px">✏️ Vous modifiez une annonce déjà en ligne. Les photos actuelles du site sont conservées si vous n'en choisissez pas de nouvelles. <a href="#" onclick="renderAnnonceForm();return false">Repartir sur une annonce vierge</a></p>
     <div class="actions">
@@ -543,6 +550,7 @@ function renderAnnonceForm(d){
       <button class="btn btn-primary" onclick="saveAnnonceDraft()">💾 Enregistrer le brouillon</button>
     </div>
     <p id="an-status" style="font-size:13px;margin-top:10px"></p>`;
+  galRender();
 }
 async function renderAnnonceList(){
   const items=(await wfFetch('collections/'+WF.propId+'/items?limit=15')).items||[];
@@ -585,37 +593,53 @@ async function uploadForAnnonce(files){
     if(j.key)newKeys.push({key:j.key,name:cf.name});
   }
   STATE=await api('state');
-  // Ajouter les nouvelles photos à tous les sélecteurs du formulaire, sans perdre la saisie
-  const sels=[document.getElementById('an-photo'),...document.querySelectorAll('.an-gal')];
-  for(const sel of sels){
-    for(const nk of newKeys){
-      const o=document.createElement('option');o.value=nk.key;o.textContent=nk.name;
-      sel.appendChild(o);
-    }
-  }
+  // Ajouter aux sélecteurs, choisir la principale, et compléter la galerie avec le reste
+  const mainSel=document.getElementById('an-photo');
+  for(const nk of newKeys){const o=document.createElement('option');o.value=nk.key;o.textContent=nk.name;mainSel.appendChild(o);}
   if(newKeys.length){
-    document.getElementById('an-photo').value=document.getElementById('an-photo').value||newKeys[0].key;
-    const gals=[...document.querySelectorAll('.an-gal')];
-    newKeys.slice(1,4).forEach((nk,i)=>{if(gals[i]&&!gals[i].value)gals[i].value=nk.key;});
+    mainSel.value=mainSel.value||newKeys[0].key;
+    newKeys.slice(mainSel.value===newKeys[0].key?1:0).forEach(nk=>{if(AN_GAL.length<15&&!AN_GAL.includes(nk.key))AN_GAL.push(nk.key);});
+    galRender();
   }
+  const pick=document.getElementById('an-gal-pick');
+  if(pick)pick.innerHTML='<option value="">＋ depuis la médiathèque...</option>'+STATE.photos.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('');
   st.textContent='✓ '+newKeys.length+' photo(s) ajoutée(s) (aussi dans la médiathèque)';
   renderPhotos();
 }
-async function uploadForGallery(input,ix){
-  const f=input.files[0];
-  if(!f)return;
-  toast('Envoi de '+f.name+'...');
-  const cf=await compressImage(f);
-  const r=await fetch('/api/photos',{method:'POST',headers:{'Authorization':'Bearer '+KEY,'Content-Type':cf.type||'image/jpeg','X-Photo-Name':encodeURIComponent(cf.name)},body:cf});
-  const j=await r.json();
-  if(!j.key){toast('Erreur d\'envoi');return;}
+let AN_GAL=[]; // clés médiathèque de la galerie, dans l'ordre
+function galRender(){
+  const names={}; STATE.photos.forEach(p=>names[p.key]=p.label||p.name);
+  document.getElementById('an-gal-chips').innerHTML=AN_GAL.map((k,i)=>`
+    <span style="display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:4px 6px 4px 4px;font-size:12px">
+      <img src="${'/api/photos/'+encodeURIComponent(k)}" style="width:44px;height:32px;object-fit:cover;border-radius:6px">
+      <span style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${i+1}. ${esc(names[k]||k)}</span>
+      <button style="border:none;background:none;cursor:pointer;color:var(--ink-3);font-size:13px" onclick="AN_GAL.splice(${i},1);galRender()">✕</button>
+    </span>`).join('');
+  document.getElementById('an-gal-status').textContent=AN_GAL.length?AN_GAL.length+'/15 photos':'';
+}
+function galAddKey(k){
+  if(!k)return;
+  if(AN_GAL.length>=15){toast('Maximum 15 photos de galerie');return;}
+  if(!AN_GAL.includes(k))AN_GAL.push(k);
+  galRender();
+}
+async function galAddFiles(files){
+  const st=document.getElementById('an-gal-status');
+  let n=0;
+  for(const f of files){
+    if(AN_GAL.length>=15){toast('Maximum 15 photos de galerie');break;}
+    st.textContent='Envoi '+(++n)+'/'+files.length+'...';
+    const cf=await compressImage(f);
+    const r=await fetch('/api/photos',{method:'POST',headers:{'Authorization':'Bearer '+KEY,'Content-Type':cf.type||'image/jpeg','X-Photo-Name':encodeURIComponent(cf.name)},body:cf});
+    const j=await r.json();
+    if(j.key)AN_GAL.push(j.key);
+  }
   STATE=await api('state');
-  // ajouter l'option à tous les sélecteurs photo
-  const sels=[document.getElementById('an-photo'),...document.querySelectorAll('.an-gal')];
-  for(const sel of sels){const o=document.createElement('option');o.value=j.key;o.textContent=cf.name;sel.appendChild(o);}
-  document.querySelectorAll('.an-gal')[ix].value=j.key;
-  toast('Photo ajoutée à la galerie ✓');
-  renderPhotos();
+  // rafraîchir les sélecteurs médiathèque
+  const pick=document.getElementById('an-gal-pick');
+  if(pick)pick.innerHTML='<option value="">＋ depuis la médiathèque...</option>'+STATE.photos.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('');
+  galRender();renderPhotos();
+  toast('Galerie mise à jour ✓');
 }
 function showVilleCreator(){
   document.getElementById('ville-creator').classList.remove('hidden');
@@ -676,7 +700,7 @@ async function publishAnnonce(){
   if(!name||!prix||!ville||!desc||(!photo&&!AN_EDIT_ID)){st.textContent='⚠️ Remplissez au minimum : titre, type, ville, prix, texte'+(AN_EDIT_ID?'':' et photo principale')+'.';st.style.color='#c0392b';return;}
   st.textContent=(AN_EDIT_ID?'Mise à jour':'Mise en ligne')+' en cours...';st.style.color='var(--ink-2)';
   const purl=k=>location.origin+'/api/photos/'+encodeURIComponent(k);
-  const gallery=[...document.querySelectorAll('.an-gal')].map(s=>s.value).filter(Boolean);
+  const gallery=AN_GAL.filter(Boolean);
   const fieldData={
     name,
     'prix-du-bien-fixe':prix,
