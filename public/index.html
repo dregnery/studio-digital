@@ -439,7 +439,7 @@ async function loadAnnonces(){
       const cols=(await wfFetch('sites/'+site.id+'/collections')).collections;
       const byslug=s=>cols.find(c=>c.slug===s);
       const prop=byslug('properties');
-      const refCols={ville:byslug('ville'),type:byslug('type-de-bien'),avantages:byslug('avantages-du-biens'),agents:byslug('agents')};
+      const refCols={ville:byslug('ville'),type:byslug('type-de-bien'),statut:byslug('statut-de-la-transaction'),avantages:byslug('avantages-du-biens'),agents:byslug('agents')};
       const refs={};
       for(const [k,c] of Object.entries(refCols)){
         refs[k]=c?((await wfFetch('collections/'+c.id+'/items?limit=100')).items||[]).map(i=>({id:i.id,name:i.fieldData.name})):[];
@@ -457,7 +457,7 @@ function opt(list,sel){return '<option value="">— choisir —</option>'+list.m
 let AN_DRAFT_ID=null;
 function anValues(){
   const v=id=>{const el=document.getElementById(id);return el?el.value:'';};
-  return {name:v('an-name'),type:v('an-type'),ville:v('an-ville'),prix:v('an-prix'),surface:v('an-surface'),
+  return {name:v('an-name'),type:v('an-type'),statut:v('an-statut'),ville:v('an-ville'),prix:v('an-prix'),surface:v('an-surface'),
     adresse:v('an-adresse'),desc:v('an-desc'),resume:v('an-resume'),cond:v('an-cond'),
     agent:v('an-agent'),photo:v('an-photo'),gal:[...document.querySelectorAll('.an-gal')].map(s=>s.value),
     av:[...document.querySelectorAll('.an-av:checked')].map(c=>c.value)};
@@ -503,6 +503,7 @@ function renderAnnonceForm(d){
     <dl class="kv" style="grid-template-columns:180px 1fr">
       <dt>Titre de l'annonce *</dt><dd><input class="addr" id="an-name" value="${esc(d.name||'')}" placeholder="Maison 5 pièces avec jardin — Saint-Égrève La Monta"></dd>
       <dt>Type de bien *</dt><dd><select class="addr" id="an-type">${opt(WF.refs.type,d.type)}</select></dd>
+      <dt>Statut</dt><dd><select class="addr" id="an-statut">${opt(WF.refs.statut,d.statut||(WF.refs.statut.find(s=>/vendre/i.test(s.name))||{}).id)}</select></dd>
       <dt>Ville *</dt><dd><select class="addr" id="an-ville" onchange="if(this.value==='__new__')newVille()">${opt(WF.refs.ville,d.ville)}<option value="__new__">＋ Ajouter une ville...</option></select></dd>
       <dt>Prix (€) *</dt><dd><input class="addr" id="an-prix" type="number" value="${esc(d.prix||'')}" placeholder="395000"></dd>
       <dt>Surface</dt><dd><input class="addr" id="an-surface" value="${esc(d.surface||'')}" placeholder="120 m²"></dd>
@@ -626,7 +627,8 @@ async function publishAnnonce(){
     'conditions-1':v('an-cond')||'Honoraires à la charge du vendeur',
     'property-area':v('an-surface')
   };
-  if(type)fieldData['object-type']=type;
+  if(type)fieldData['property']=type;
+  const statut=v('an-statut'); if(statut)fieldData['object-type']=statut;
   const agent=v('an-agent'); if(agent)fieldData['property-agent']=agent;
   const av=[...document.querySelectorAll('.an-av:checked')].map(c=>c.value); if(av.length)fieldData.facilities=av;
   if(gallery.length)fieldData.gallery=gallery.map(k=>({url:purl(k)}));
