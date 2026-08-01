@@ -103,6 +103,24 @@ export async function onRequest(context) {
     return ok({ updated: id });
   }
 
+  // ------- PHOTOS : import depuis une URL (le serveur va chercher l'image, pas de CORS) -------
+  if (route === 'photos-import' && method === 'POST') {
+    const b = await request.json();
+    if (!b.url) return err('url manquante');
+    const imgRes = await fetch(b.url, { headers: { 'User-Agent': 'Mozilla/5.0 (StudioDigital)' } });
+    if (!imgRes.ok) return err('Image inaccessible (' + imgRes.status + ')', 502);
+    const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+    if (!contentType.startsWith('image/')) return err('Ce n\'est pas une image (' + contentType + ')');
+    const body = await imgRes.arrayBuffer();
+    if (body.byteLength > 15 * 1024 * 1024) return err('Image trop lourde');
+    const name = (b.name || b.url.split('/').pop().split('?')[0] || 'photo.jpg').slice(0, 80);
+    const key = `${Date.now()}-${name.replace(/[^\w.\-]+/g, '_')}`;
+    await env.PHOTOS.put(key, body, { httpMetadata: { contentType } });
+    await env.DB.prepare('INSERT INTO photos (key,name,content_type,size,label) VALUES (?,?,?,?,?)')
+      .bind(key, name, contentType, body.byteLength, b.label || '').run();
+    return ok({ key, size: body.byteLength });
+  }
+
   // ------- PHOTOS -------
   if (route === 'photos' && method === 'POST') {
     // Corps binaire + en-têtes X-Photo-Name / X-Photo-Label
