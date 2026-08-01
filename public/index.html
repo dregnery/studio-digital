@@ -133,6 +133,7 @@
       <p style="font-size:12.5px;color:var(--ink-2);margin-bottom:14px">Remplissez, choisissez les photos, puis « Mettre en ligne » : l'annonce est créée immédiatement sur votre site. Sa promotion (fiche Google, réseaux) sera préparée automatiquement et soumise à votre validation.</p>
       <div id="annonce-form-zone"><div class="spin">Chargement des listes depuis votre site...</div></div>
     </div>
+    <div class="panel"><h3>Brouillons en cours</h3><div id="annonce-drafts"><div class="spin">Chargement...</div></div></div>
     <div class="panel"><h3>Annonces en ligne</h3><div id="annonce-list"><div class="spin">Chargement...</div></div></div>
   </section>
 
@@ -241,7 +242,7 @@ function fmtDate(p){
   return (p.published_at?'Publié le ':'Prévu le ')+s+(p.source==='mapduo'?' (via MapDuo)':'');
 }
 function renderPubs(){
-  const pubs=STATE.publications;
+  const pubs=STATE.publications.filter(p=>p.source!=='annonce');
   $('#pub-count').textContent=pubs.length+' publications';
   $('#pub-grid').innerHTML=pubs.length?pubs.map(p=>`
     <div class="card" onclick="openDetail('${p.id}')">
@@ -447,34 +448,81 @@ async function loadAnnonces(){
     }
     renderAnnonceForm();
     renderAnnonceList();
+    renderAnnonceDrafts();
   }catch(e){
     $('#annonce-form-zone').innerHTML='<div class="spin">Impossible de charger les listes ('+esc(e.message)+') — réessayez.</div>';
   }
 }
 function opt(list,sel){return '<option value="">— choisir —</option>'+list.map(o=>`<option value="${o.id}" ${o.id===sel?'selected':''}>${esc(o.name)}</option>`).join('');}
-function renderAnnonceForm(){
+let AN_DRAFT_ID=null;
+function anValues(){
+  const v=id=>{const el=document.getElementById(id);return el?el.value:'';};
+  return {name:v('an-name'),type:v('an-type'),ville:v('an-ville'),prix:v('an-prix'),surface:v('an-surface'),
+    adresse:v('an-adresse'),desc:v('an-desc'),resume:v('an-resume'),cond:v('an-cond'),
+    agent:v('an-agent'),photo:v('an-photo'),gal:[...document.querySelectorAll('.an-gal')].map(s=>s.value),
+    av:[...document.querySelectorAll('.an-av:checked')].map(c=>c.value)};
+}
+async function saveAnnonceDraft(){
+  const d=anValues();
+  if(!d.name&&!d.desc){toast('Rien à enregistrer — donnez au moins un titre.');return;}
+  AN_DRAFT_ID=AN_DRAFT_ID||('annonce-brouillon-'+Date.now().toString(36));
+  const body={id:AN_DRAFT_ID,title:d.name||'Annonce sans titre',status:'draft',source:'annonce',
+    excerpt:(d.resume||d.desc||'').slice(0,150),channels:[],contents:{form:JSON.stringify(d)}};
+  const exists=STATE.publications.some(p=>p.id===AN_DRAFT_ID);
+  await api(exists?'publications/'+AN_DRAFT_ID:'publications',{method:exists?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(exists?{title:body.title,excerpt:body.excerpt,contents:body.contents}:body)});
+  STATE=await api('state');
+  toast('Brouillon enregistré ✓ — reprenez-le quand vous voulez');
+  renderAnnonceDrafts();
+}
+function renderAnnonceDrafts(){
+  const drafts=STATE.publications.filter(p=>p.source==='annonce'&&p.status==='draft');
+  $('#annonce-drafts').innerHTML=drafts.length?drafts.map(p=>`
+    <div class="slot"><div class="what"><b>${esc(p.title)}</b><p>${esc(p.excerpt||'')}</p></div>
+      <button class="btn btn-primary" style="padding:8px 14px;font-size:13px" onclick="resumeDraft('${p.id}')">Reprendre</button>
+      <button class="btn btn-ghost" style="padding:8px 12px;font-size:13px" onclick="deleteDraft('${p.id}')">✕</button></div>`).join('')
+    :'<div class="spin" style="padding:14px">Aucun brouillon.</div>';
+}
+async function resumeDraft(id){
+  const p=STATE.publications.find(x=>x.id===id);
+  if(!p)return;
+  AN_DRAFT_ID=id;
+  const d=JSON.parse(p.contents.form||'{}');
+  renderAnnonceForm(d);
+  window.scrollTo({top:0});
+  toast('Brouillon repris — terminez et mettez en ligne quand vous êtes prêt');
+}
+async function deleteDraft(id){
+  await api('publications/'+id,{method:'DELETE'});
+  if(AN_DRAFT_ID===id)AN_DRAFT_ID=null;
+  STATE=await api('state');renderAnnonceDrafts();toast('Brouillon supprimé');
+}
+function renderAnnonceForm(d){
+  d=d||{};
   const ph=STATE.photos;
   $('#annonce-form-zone').innerHTML=`
     <dl class="kv" style="grid-template-columns:180px 1fr">
-      <dt>Titre de l'annonce *</dt><dd><input class="addr" id="an-name" placeholder="Maison 5 pièces avec jardin — Saint-Égrève La Monta"></dd>
-      <dt>Type de bien *</dt><dd><select class="addr" id="an-type">${opt(WF.refs.type)}</select></dd>
-      <dt>Ville *</dt><dd><select class="addr" id="an-ville" onchange="if(this.value==='__new__')newVille()">${opt(WF.refs.ville)}<option value="__new__">＋ Ajouter une ville...</option></select></dd>
-      <dt>Prix (€) *</dt><dd><input class="addr" id="an-prix" type="number" placeholder="395000"></dd>
-      <dt>Surface</dt><dd><input class="addr" id="an-surface" placeholder="120 m²"></dd>
-      <dt>Adresse / secteur</dt><dd><input class="addr" id="an-adresse" placeholder="Quartier La Monta"></dd>
-      <dt>Texte complet de l'annonce *</dt><dd><textarea class="addr" id="an-desc" rows="10" placeholder="Votre texte intégral — il sera publié sur le site TEL QUEL, sans aucune modification. Les retours à la ligne sont conservés."></textarea></dd>
-      <dt>Résumé court (listes)</dt><dd><input class="addr" id="an-resume" placeholder="1-2 phrases pour les vignettes du site (sinon : début du texte complet)"></dd>
-      <dt>Conditions</dt><dd><input class="addr" id="an-cond" value="Honoraires à la charge du vendeur — DPE disponible sur demande"></dd>
-      <dt>Avantages</dt><dd><div style="display:flex;gap:10px;flex-wrap:wrap">${WF.refs.avantages.map(a=>`<label style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="checkbox" class="an-av" value="${a.id}">${esc(a.name)}</label>`).join('')||'<i style="font-size:12px;color:var(--ink-3)">aucune liste d\'avantages</i>'}</div></dd>
-      <dt>Agent</dt><dd><select class="addr" id="an-agent">${opt(WF.refs.agents,WF.refs.agents[0]&&WF.refs.agents[0].id)}</select></dd>
+      <dt>Titre de l'annonce *</dt><dd><input class="addr" id="an-name" value="${esc(d.name||'')}" placeholder="Maison 5 pièces avec jardin — Saint-Égrève La Monta"></dd>
+      <dt>Type de bien *</dt><dd><select class="addr" id="an-type">${opt(WF.refs.type,d.type)}</select></dd>
+      <dt>Ville *</dt><dd><select class="addr" id="an-ville" onchange="if(this.value==='__new__')newVille()">${opt(WF.refs.ville,d.ville)}<option value="__new__">＋ Ajouter une ville...</option></select></dd>
+      <dt>Prix (€) *</dt><dd><input class="addr" id="an-prix" type="number" value="${esc(d.prix||'')}" placeholder="395000"></dd>
+      <dt>Surface</dt><dd><input class="addr" id="an-surface" value="${esc(d.surface||'')}" placeholder="120 m²"></dd>
+      <dt>Adresse / secteur</dt><dd><input class="addr" id="an-adresse" value="${esc(d.adresse||'')}" placeholder="Quartier La Monta"></dd>
+      <dt>Texte complet de l'annonce *</dt><dd><textarea class="addr" id="an-desc" rows="10" placeholder="Votre texte intégral — il sera publié sur le site TEL QUEL, sans aucune modification. Les retours à la ligne sont conservés.">${esc(d.desc||'')}</textarea></dd>
+      <dt>Résumé court (listes)</dt><dd><input class="addr" id="an-resume" value="${esc(d.resume||'')}" placeholder="1-2 phrases pour les vignettes du site (sinon : début du texte complet)"></dd>
+      <dt>Conditions</dt><dd><input class="addr" id="an-cond" value="${esc(d.cond||'Honoraires à la charge du vendeur — DPE disponible sur demande')}"></dd>
+      <dt>Avantages</dt><dd><div style="display:flex;gap:10px;flex-wrap:wrap">${WF.refs.avantages.map(a=>`<label style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="checkbox" class="an-av" value="${a.id}" ${(d.av||[]).includes(a.id)?'checked':''}>${esc(a.name)}</label>`).join('')||'<i style="font-size:12px;color:var(--ink-3)">aucune liste d\'avantages</i>'}</div></dd>
+      <dt>Agent</dt><dd><select class="addr" id="an-agent">${opt(WF.refs.agents,d.agent||(WF.refs.agents[0]&&WF.refs.agents[0].id))}</select></dd>
       <dt>Photo principale *</dt><dd>
-        <select class="addr" id="an-photo">${'<option value="">— choisir dans la médiathèque —</option>'+ph.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('')}</select>
+        <select class="addr" id="an-photo">${'<option value="">— choisir dans la médiathèque —</option>'+ph.map(p=>`<option value="${p.key}" ${p.key===d.photo?'selected':''}>${esc(p.label||p.name)}</option>`).join('')}</select>
         <div style="margin-top:6px"><button class="btn btn-ghost" style="padding:7px 13px;font-size:12.5px" onclick="document.getElementById('an-file').click()">📁 Importer depuis mon ordinateur</button>
         <input id="an-file" type="file" accept="image/*" multiple class="hidden" onchange="uploadForAnnonce(this.files)">
         <span id="an-upload-status" style="font-size:12px;color:var(--ink-2);margin-left:8px"></span></div></dd>
-      <dt>Galerie (jusqu'à 3)</dt><dd>${[1,2,3].map(i=>`<select class="addr an-gal" style="margin-bottom:6px">${'<option value="">— photo '+i+' (optionnel) —</option>'+ph.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('')}</select>`).join('')}</dd>
+      <dt>Galerie (jusqu'à 3)</dt><dd>${[1,2,3].map((i,ix)=>`<select class="addr an-gal" style="margin-bottom:6px">${'<option value="">— photo '+i+' (optionnel) —</option>'+ph.map(p=>`<option value="${p.key}" ${(d.gal||[])[ix]===p.key?'selected':''}>${esc(p.label||p.name)}</option>`).join('')}</select>`).join('')}</dd>
     </dl>
-    <div class="actions"><button class="btn btn-ok" onclick="publishAnnonce()">🏠 Mettre en ligne sur le site</button></div>
+    <div class="actions">
+      <button class="btn btn-ok" onclick="publishAnnonce()">🏠 Mettre en ligne sur le site</button>
+      <button class="btn btn-primary" onclick="saveAnnonceDraft()">💾 Enregistrer le brouillon</button>
+    </div>
     <p id="an-status" style="font-size:13px;margin-top:10px"></p>`;
 }
 async function renderAnnonceList(){
@@ -565,6 +613,7 @@ async function publishAnnonce(){
   const res=await wfFetch('collections/'+WF.propId+'/items/live',{method:'POST',body:JSON.stringify({isDraft:false,isArchived:false,fieldData})});
   if(res.id){
     st.textContent='✅ Annonce en ligne sur votre site ! La promotion sera préparée automatiquement (validation dans Publications). ';st.style.color='var(--ok)';
+    if(AN_DRAFT_ID){await api('publications/'+AN_DRAFT_ID,{method:'DELETE'});AN_DRAFT_ID=null;STATE=await api('state');renderAnnonceDrafts();}
     renderAnnonceList();
   }else{
     st.textContent='❌ Erreur Webflow : '+JSON.stringify(res.details||res.message).slice(0,200);st.style.color='#c0392b';
