@@ -5,7 +5,7 @@ pages_build_output_dir = "public"
 [[d1_databases]]
 binding = "DB"
 database_name = "studio-digital"
-database_id = "REMPLACER_APRES_CREATION"
+database_id = "18a39ae2-82dd-4e41-95a8-ed1ad0767797"
 
 [[r2_buckets]]
 binding = "PHOTOS"
