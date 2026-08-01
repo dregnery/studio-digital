@@ -259,25 +259,29 @@ function openDetail(id){
           <option value="">— choisir —</option>
           ${photos.map(ph=>`<option value="${ph.key}" ${ph.key===p.photo_key?'selected':''}>${esc(ph.name)}${ph.label?' — '+esc(ph.label):''}</option>`).join('')}
         </select></div>`:''}
-      ${p.status!=='published'?`<div style="margin-bottom:14px;padding:12px 14px;background:#f7fbff;border:1px solid #cfe4f7;border-radius:12px">
-        <b style="font-size:13px;display:block;margin-bottom:8px">Publier sur :</b>
+      <div style="margin-bottom:14px;padding:12px 14px;background:#f7fbff;border:1px solid #cfe4f7;border-radius:12px">
+        <b style="font-size:13px;display:block;margin-bottom:8px">${p.status==='published'?'Publié / à publier sur :':'Publier sur :'}</b>
         <div style="display:flex;gap:14px;flex-wrap:wrap">
         ${CHANNELS.map(c=>`<label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer">
           <input type="checkbox" class="chan-check" value="${c.id}" ${p.channels.includes(c.id)?'checked':''} onchange="toggleChannel('${p.id}')"> ${c.name}</label>`).join('')}
         </div>
-      </div>`:''}
+        ${p.status==='published'?'<p style="font-size:12px;color:var(--ink-3);margin-top:8px">Cochez un support supplémentaire puis « Publier sur les canaux ajoutés » — Claude s\'en charge.</p>':''}
+      </div>
       ${CHANNELS.map(c=>`
         <div class="support" id="support-${c.id}" style="${p.channels.includes(c.id)?'':'display:none'}">
           <div class="head"><span class="chan on">${c.short}</span><b>${c.name}</b></div>
-          <textarea id="d-${c.id}" ${p.status==='published'?'readonly':''}>${esc(p.contents[c.id]||'')}</textarea>
+          <textarea id="d-${c.id}">${esc(p.contents[c.id]||'')}</textarea>
         </div>`).join('')}
-      ${p.status!=='published'?`
       <div class="actions">
-        <button class="btn btn-ok" onclick="approvePub('${p.id}')">✓ Valider pour publication</button>
+        ${p.status==='published'
+          ?`<button class="btn btn-ok" onclick="approvePub('${p.id}')">✓ Publier sur les canaux ajoutés</button>`
+          :`<button class="btn btn-ok" onclick="approvePub('${p.id}')">✓ Valider pour publication</button>`}
         <button class="btn btn-primary" onclick="savePub('${p.id}')">Enregistrer mes modifications</button>
         <button class="btn btn-ghost" onclick="delPub('${p.id}')">Supprimer</button>
       </div>
-      <div class="notice">« Enregistrer » garde vos retouches en brouillon. « Valider » signale à Claude que ce pack est bon — il le publiera sur les canaux cochés au prochain passage, puis le statut passera à « Publié ».</div>`:''}
+      <div class="notice">${p.status==='published'
+        ?'Cette publication est déjà partie sur certains canaux. Cochez-en d\'autres et cliquez « Publier sur les canaux ajoutés » : Claude publiera uniquement sur les nouveaux supports.'
+        :'« Enregistrer » garde vos retouches en brouillon. « Valider » signale à Claude que ce pack est bon — il le publiera sur les canaux cochés, puis le statut passera à « Publié ».'}</div>
     </div>`;
   $('#view-pubs').classList.add('hidden');$('#view-detail').classList.remove('hidden');window.scrollTo({top:0});
 }

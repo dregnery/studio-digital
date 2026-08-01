@@ -1,7 +1,10 @@
 // Studio Digital — API (Cloudflare Pages Functions)
 // Bindings requis : DB (D1), PHOTOS (R2) — Variable : APP_SECRET
 
-const JSON_HEADERS = { 'Content-Type': 'application/json; charset=utf-8' };
+const JSON_HEADERS = {
+  'Content-Type': 'application/json; charset=utf-8',
+  'Access-Control-Allow-Origin': '*'
+};
 
 function ok(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
@@ -37,7 +40,8 @@ export async function onRequest(context) {
     if (!obj) return err('Photo introuvable', 404);
     return new Response(obj.body, { headers: {
       'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg',
-      'Cache-Control': 'public, max-age=31536000'
+      'Cache-Control': 'public, max-age=31536000',
+      'Access-Control-Allow-Origin': '*'
     }});
   }
 
