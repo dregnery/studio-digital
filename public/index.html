@@ -517,7 +517,12 @@ function renderAnnonceForm(d){
         <div style="margin-top:6px"><button class="btn btn-ghost" style="padding:7px 13px;font-size:12.5px" onclick="document.getElementById('an-file').click()">📁 Importer depuis mon ordinateur</button>
         <input id="an-file" type="file" accept="image/*" multiple class="hidden" onchange="uploadForAnnonce(this.files)">
         <span id="an-upload-status" style="font-size:12px;color:var(--ink-2);margin-left:8px"></span></div></dd>
-      <dt>Galerie (jusqu'à 3)</dt><dd>${[1,2,3].map((i,ix)=>`<select class="addr an-gal" style="margin-bottom:6px">${'<option value="">— photo '+i+' (optionnel) —</option>'+ph.map(p=>`<option value="${p.key}" ${(d.gal||[])[ix]===p.key?'selected':''}>${esc(p.label||p.name)}</option>`).join('')}</select>`).join('')}</dd>
+      <dt>Galerie (jusqu'à 3)</dt><dd>${[1,2,3].map((i,ix)=>`
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+          <select class="addr an-gal" style="flex:1">${'<option value="">— photo '+i+' (optionnel) —</option>'+ph.map(p=>`<option value="${p.key}" ${(d.gal||[])[ix]===p.key?'selected':''}>${esc(p.label||p.name)}</option>`).join('')}</select>
+          <button class="btn btn-ghost" style="padding:8px 11px;font-size:12px;white-space:nowrap" onclick="document.getElementById('an-gal-file-${ix}').click()">📁 Ordinateur</button>
+          <input id="an-gal-file-${ix}" type="file" accept="image/*" class="hidden" onchange="uploadForGallery(this,${ix})">
+        </div>`).join('')}</dd>
     </dl>
     <div class="actions">
       <button class="btn btn-ok" onclick="publishAnnonce()">🏠 Mettre en ligne sur le site</button>
@@ -560,6 +565,22 @@ async function uploadForAnnonce(files){
     newKeys.slice(1,4).forEach((nk,i)=>{if(gals[i]&&!gals[i].value)gals[i].value=nk.key;});
   }
   st.textContent='✓ '+newKeys.length+' photo(s) ajoutée(s) (aussi dans la médiathèque)';
+  renderPhotos();
+}
+async function uploadForGallery(input,ix){
+  const f=input.files[0];
+  if(!f)return;
+  toast('Envoi de '+f.name+'...');
+  const cf=await compressImage(f);
+  const r=await fetch('/api/photos',{method:'POST',headers:{'Authorization':'Bearer '+KEY,'Content-Type':cf.type||'image/jpeg','X-Photo-Name':encodeURIComponent(cf.name)},body:cf});
+  const j=await r.json();
+  if(!j.key){toast('Erreur d\'envoi');return;}
+  STATE=await api('state');
+  // ajouter l'option à tous les sélecteurs photo
+  const sels=[document.getElementById('an-photo'),...document.querySelectorAll('.an-gal')];
+  for(const sel of sels){const o=document.createElement('option');o.value=j.key;o.textContent=cf.name;sel.appendChild(o);}
+  document.querySelectorAll('.an-gal')[ix].value=j.key;
+  toast('Photo ajoutée à la galerie ✓');
   renderPhotos();
 }
 async function newVille(){
