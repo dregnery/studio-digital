@@ -259,8 +259,15 @@ function openDetail(id){
           <option value="">— choisir —</option>
           ${photos.map(ph=>`<option value="${ph.key}" ${ph.key===p.photo_key?'selected':''}>${esc(ph.name)}${ph.label?' — '+esc(ph.label):''}</option>`).join('')}
         </select></div>`:''}
-      ${CHANNELS.filter(c=>p.channels.includes(c.id)).map(c=>`
-        <div class="support">
+      ${p.status!=='published'?`<div style="margin-bottom:14px;padding:12px 14px;background:#f7fbff;border:1px solid #cfe4f7;border-radius:12px">
+        <b style="font-size:13px;display:block;margin-bottom:8px">Publier sur :</b>
+        <div style="display:flex;gap:14px;flex-wrap:wrap">
+        ${CHANNELS.map(c=>`<label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" class="chan-check" value="${c.id}" ${p.channels.includes(c.id)?'checked':''} onchange="toggleChannel('${p.id}')"> ${c.name}</label>`).join('')}
+        </div>
+      </div>`:''}
+      ${CHANNELS.map(c=>`
+        <div class="support" id="support-${c.id}" style="${p.channels.includes(c.id)?'':'display:none'}">
           <div class="head"><span class="chan on">${c.short}</span><b>${c.name}</b></div>
           <textarea id="d-${c.id}" ${p.status==='published'?'readonly':''}>${esc(p.contents[c.id]||'')}</textarea>
         </div>`).join('')}
@@ -275,11 +282,19 @@ function openDetail(id){
   $('#view-pubs').classList.add('hidden');$('#view-detail').classList.remove('hidden');window.scrollTo({top:0});
 }
 function closeDetail(){$('#view-detail').classList.add('hidden');$('#view-pubs').classList.remove('hidden');}
+function toggleChannel(){
+  document.querySelectorAll('.chan-check').forEach(cb=>{
+    const s=$('#support-'+cb.value);
+    if(s)s.style.display=cb.checked?'':'none';
+  });
+}
 function collectEdits(p){
   const contents={};
-  for(const c of p.channels){const el=$('#d-'+c);if(el)contents[c]=el.value;}
+  for(const c of CHANNELS.map(x=>x.id)){const el=$('#d-'+c);if(el&&el.value.trim())contents[c]=el.value;}
+  const checks=[...document.querySelectorAll('.chan-check')];
+  const channels=checks.length?checks.filter(cb=>cb.checked).map(cb=>cb.value):p.channels;
   const sel=$('#d-photo');
-  return {contents,photo_key:sel?sel.value||null:p.photo_key};
+  return {contents,channels,photo_key:sel?sel.value||null:p.photo_key};
 }
 async function savePub(id){
   const p=STATE.publications.find(x=>x.id===id);
