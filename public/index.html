@@ -352,14 +352,30 @@ function renderPhotos(){
       ${p.last_used_at?'<span title="Déjà utilisée">✓</span>':''}</div>
     </div>`).join('');
 }
+// Compression automatique : max 1600px, JPEG qualité 0.82 (≈300-500 Ko par photo)
+async function compressImage(file){
+  try{
+    if(!/^image\/(jpe?g|png|webp)$/i.test(file.type))return file;
+    const img=await createImageBitmap(file);
+    const max=1600, ratio=Math.min(1,max/Math.max(img.width,img.height));
+    if(ratio===1&&file.size<800*1024)return file;
+    const c=document.createElement('canvas');
+    c.width=Math.round(img.width*ratio);c.height=Math.round(img.height*ratio);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    const blob=await new Promise(res=>c.toBlob(res,'image/jpeg',0.82));
+    if(!blob||blob.size>=file.size)return file;
+    return new File([blob],file.name.replace(/\.(png|webp)$/i,'.jpg'),{type:'image/jpeg'});
+  }catch(e){return file;}
+}
 async function uploadFiles(files){
   for(const f of files){
     toast('Envoi de '+f.name+'...');
+    const cf=await compressImage(f);
     await fetch('/api/photos',{method:'POST',headers:{
-      'Authorization':'Bearer '+KEY,'Content-Type':f.type||'image/jpeg',
-      'X-Photo-Name':encodeURIComponent(f.name)},body:f});
+      'Authorization':'Bearer '+KEY,'Content-Type':cf.type||'image/jpeg',
+      'X-Photo-Name':encodeURIComponent(cf.name)},body:cf});
   }
-  toast(files.length+' photo(s) ajoutée(s) ✓');
+  toast(files.length+' photo(s) ajoutée(s) et optimisée(s) ✓');
   STATE=await api('state');renderPhotos();
 }
 async function delPhoto(key){
@@ -475,9 +491,10 @@ async function uploadForAnnonce(files){
   st.textContent='Envoi de '+files.length+' photo(s)...';
   const newKeys=[];
   for(const f of files){
-    const r=await fetch('/api/photos',{method:'POST',headers:{'Authorization':'Bearer '+KEY,'Content-Type':f.type||'image/jpeg','X-Photo-Name':encodeURIComponent(f.name)},body:f});
+    const cf=await compressImage(f);
+    const r=await fetch('/api/photos',{method:'POST',headers:{'Authorization':'Bearer '+KEY,'Content-Type':cf.type||'image/jpeg','X-Photo-Name':encodeURIComponent(cf.name)},body:cf});
     const j=await r.json();
-    if(j.key)newKeys.push({key:j.key,name:f.name});
+    if(j.key)newKeys.push({key:j.key,name:cf.name});
   }
   STATE=await api('state');
   // Ajouter les nouvelles photos à tous les sélecteurs du formulaire, sans perdre la saisie
