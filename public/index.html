@@ -110,6 +110,7 @@
   </div>
   <nav>
     <button class="active" data-view="pubs">Publications</button>
+    <button data-view="annonces">Annonces</button>
     <button data-view="plan">Planificateur</button>
     <button data-view="photos">Photos</button>
     <button data-view="params">Paramètres</button>
@@ -124,6 +125,16 @@
   </section>
 
   <section id="view-detail" class="hidden"></section>
+
+  <section id="view-annonces" class="hidden">
+    <div class="toolbar"><h2>Annonces</h2><span class="count" id="annonce-count">—</span></div>
+    <div class="panel">
+      <h3>Nouvelle annonce</h3>
+      <p style="font-size:12.5px;color:var(--ink-2);margin-bottom:14px">Remplissez, choisissez les photos, puis « Mettre en ligne » : l'annonce est créée immédiatement sur votre site. Sa promotion (fiche Google, réseaux) sera préparée automatiquement et soumise à votre validation.</p>
+      <div id="annonce-form-zone"><div class="spin">Chargement des listes depuis votre site...</div></div>
+    </div>
+    <div class="panel"><h3>Annonces en ligne</h3><div id="annonce-list"><div class="spin">Chargement...</div></div></div>
+  </section>
 
   <section id="view-plan" class="hidden">
     <div class="toolbar"><h2>Planificateur</h2><span class="count" id="freq-label">—</span></div>
@@ -397,14 +408,106 @@ async function loadAudit(){
   }
 }
 
+// ---------- Annonces ----------
+let WF=null; // cache webflow: {siteId, propId, propSlug, refs:{ville:[],type:[],avantages:[],agents:[]}}
+async function wfFetch(path,opts={}){
+  opts.headers=Object.assign({'Authorization':'Bearer '+KEY,'Content-Type':'application/json'},opts.headers||{});
+  const r=await fetch('/api/webflow/'+path,opts);
+  return r.json();
+}
+async function loadAnnonces(){
+  try{
+    if(!WF){
+      const site=(await wfFetch('sites')).sites[0];
+      const cols=(await wfFetch('sites/'+site.id+'/collections')).collections;
+      const byslug=s=>cols.find(c=>c.slug===s);
+      const prop=byslug('properties');
+      const refCols={ville:byslug('ville'),type:byslug('type-de-bien'),avantages:byslug('avantages-du-biens'),agents:byslug('agents')};
+      const refs={};
+      for(const [k,c] of Object.entries(refCols)){
+        refs[k]=c?((await wfFetch('collections/'+c.id+'/items?limit=100')).items||[]).map(i=>({id:i.id,name:i.fieldData.name})):[];
+      }
+      WF={siteId:site.id,propId:prop.id,propSlug:prop.slug,refs};
+    }
+    renderAnnonceForm();
+    renderAnnonceList();
+  }catch(e){
+    $('#annonce-form-zone').innerHTML='<div class="spin">Impossible de charger les listes ('+esc(e.message)+') — réessayez.</div>';
+  }
+}
+function opt(list,sel){return '<option value="">— choisir —</option>'+list.map(o=>`<option value="${o.id}" ${o.id===sel?'selected':''}>${esc(o.name)}</option>`).join('');}
+function renderAnnonceForm(){
+  const ph=STATE.photos;
+  $('#annonce-form-zone').innerHTML=`
+    <dl class="kv" style="grid-template-columns:180px 1fr">
+      <dt>Titre de l'annonce *</dt><dd><input class="addr" id="an-name" placeholder="Maison 5 pièces avec jardin — Saint-Égrève La Monta"></dd>
+      <dt>Type de bien *</dt><dd><select class="addr" id="an-type">${opt(WF.refs.type)}</select></dd>
+      <dt>Ville *</dt><dd><select class="addr" id="an-ville">${opt(WF.refs.ville)}</select></dd>
+      <dt>Prix (€) *</dt><dd><input class="addr" id="an-prix" type="number" placeholder="395000"></dd>
+      <dt>Surface</dt><dd><input class="addr" id="an-surface" placeholder="120 m²"></dd>
+      <dt>Adresse / secteur</dt><dd><input class="addr" id="an-adresse" placeholder="Quartier La Monta"></dd>
+      <dt>Description courte *</dt><dd><textarea class="addr" id="an-desc" rows="3" placeholder="L'essentiel du bien en 2-3 phrases. Claude la peaufinera dans la promotion."></textarea></dd>
+      <dt>Conditions</dt><dd><input class="addr" id="an-cond" value="Honoraires à la charge du vendeur — DPE disponible sur demande"></dd>
+      <dt>Avantages</dt><dd><div style="display:flex;gap:10px;flex-wrap:wrap">${WF.refs.avantages.map(a=>`<label style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="checkbox" class="an-av" value="${a.id}">${esc(a.name)}</label>`).join('')||'<i style="font-size:12px;color:var(--ink-3)">aucune liste d\'avantages</i>'}</div></dd>
+      <dt>Agent</dt><dd><select class="addr" id="an-agent">${opt(WF.refs.agents,WF.refs.agents[0]&&WF.refs.agents[0].id)}</select></dd>
+      <dt>Photo principale *</dt><dd><select class="addr" id="an-photo">${'<option value="">— choisir dans la médiathèque —</option>'+ph.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('')}</select>
+        <p style="font-size:11.5px;color:var(--ink-3);margin-top:4px">Ajoutez d'abord les photos du bien dans l'onglet Photos.</p></dd>
+      <dt>Galerie (jusqu'à 3)</dt><dd>${[1,2,3].map(i=>`<select class="addr an-gal" style="margin-bottom:6px">${'<option value="">— photo '+i+' (optionnel) —</option>'+ph.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('')}</select>`).join('')}</dd>
+    </dl>
+    <div class="actions"><button class="btn btn-ok" onclick="publishAnnonce()">🏠 Mettre en ligne sur le site</button></div>
+    <p id="an-status" style="font-size:13px;margin-top:10px"></p>`;
+}
+async function renderAnnonceList(){
+  const items=(await wfFetch('collections/'+WF.propId+'/items?limit=10')).items||[];
+  $('#annonce-count').textContent=items.length+' annonce(s) récentes';
+  $('#annonce-list').innerHTML=items.length?items.map(i=>`
+    <div class="slot"><div class="what"><b>${esc(i.fieldData.name)}</b>
+      <p>${esc(i.fieldData.price||'')} ${i.isDraft?'· brouillon':'· en ligne'}</p></div>
+      <span class="theme-tag">${i.isDraft?'Brouillon':'En ligne'}</span></div>`).join(''):'<div class="spin">Aucune annonce.</div>';
+}
+const slugify=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
+async function publishAnnonce(){
+  const v=id=>document.getElementById(id).value.trim();
+  const name=v('an-name'), prix=Number(v('an-prix')), ville=v('an-ville'), type=v('an-type'), photo=v('an-photo'), desc=v('an-desc');
+  const st=$('#an-status');
+  if(!name||!prix||!ville||!photo||!desc){st.textContent='⚠️ Remplissez au minimum : titre, type, ville, prix, description courte et photo principale.';st.style.color='#c0392b';return;}
+  st.textContent='Mise en ligne en cours...';st.style.color='var(--ink-2)';
+  const purl=k=>location.origin+'/api/photos/'+encodeURIComponent(k);
+  const gallery=[...document.querySelectorAll('.an-gal')].map(s=>s.value).filter(Boolean);
+  const fieldData={
+    name, slug:slugify(name)+'-'+Date.now().toString(36).slice(-4),
+    'object-image':{url:purl(photo)},
+    'prix-du-bien-fixe':prix,
+    price:prix.toLocaleString('fr-FR')+' €',
+    address:v('an-adresse'), location:ville,
+    'property-description':desc,
+    'object-description':'<p>'+esc(desc)+'</p>',
+    'conditions-1':v('an-cond')||'Honoraires à la charge du vendeur',
+    'property-area':v('an-surface')
+  };
+  if(type)fieldData['object-type']=type;
+  const agent=v('an-agent'); if(agent)fieldData['property-agent']=agent;
+  const av=[...document.querySelectorAll('.an-av:checked')].map(c=>c.value); if(av.length)fieldData.facilities=av;
+  if(gallery.length)fieldData.gallery=gallery.map(k=>({url:purl(k)}));
+  [1,2,3].forEach((n,i)=>{if(gallery[i])fieldData['property-hero-gallery-image-'+n]={url:purl(gallery[i])};});
+  const res=await wfFetch('collections/'+WF.propId+'/items/live',{method:'POST',body:JSON.stringify({isDraft:false,isArchived:false,fieldData})});
+  if(res.id){
+    st.textContent='✅ Annonce en ligne sur votre site ! La promotion sera préparée automatiquement (validation dans Publications). ';st.style.color='var(--ok)';
+    renderAnnonceList();
+  }else{
+    st.textContent='❌ Erreur Webflow : '+JSON.stringify(res.details||res.message).slice(0,200);st.style.color='#c0392b';
+  }
+}
+
 // ---------- Navigation ----------
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
-  ['pubs','plan','photos','params','audit'].forEach(v=>$('#view-'+v).classList.add('hidden'));
+  ['pubs','annonces','plan','photos','params','audit'].forEach(v=>$('#view-'+v).classList.add('hidden'));
   $('#view-detail').classList.add('hidden');
   $('#view-'+b.dataset.view).classList.remove('hidden');
   if(b.dataset.view==='audit'&&MAP)setTimeout(()=>MAP.invalidateSize(),100);
+  if(b.dataset.view==='annonces')loadAnnonces();
 }));
 
 // ---------- Démarrage ----------
