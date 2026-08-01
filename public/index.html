@@ -470,9 +470,15 @@ async function newVille(){
   const sel=document.getElementById('an-ville');
   const nom=prompt('Nom de la nouvelle ville :');
   if(!nom){sel.value='';return;}
+  const cp=prompt('Code postal de '+nom.trim()+' :')||'';
   const cols=(await wfFetch('sites/'+WF.siteId+'/collections')).collections;
   const villeCol=cols.find(c=>c.slug==='ville');
-  const res=await wfFetch('collections/'+villeCol.id+'/items/live',{method:'POST',body:JSON.stringify({isDraft:false,isArchived:false,fieldData:{name:nom.trim(),slug:slugify(nom)}})});
+  // style-version est obligatoire : on le copie depuis une ville existante
+  const existing=(await wfFetch('collections/'+villeCol.id+'/items?limit=1')).items||[];
+  const style=existing[0]?existing[0].fieldData['style-version']:undefined;
+  const fd={name:nom.trim(),slug:slugify(nom),'code-postal':cp.trim()};
+  if(style)fd['style-version']=style;
+  const res=await wfFetch('collections/'+villeCol.id+'/items/live',{method:'POST',body:JSON.stringify({isDraft:false,isArchived:false,fieldData:fd})});
   if(res.id){
     WF.refs.ville.push({id:res.id,name:nom.trim()});
     const o=document.createElement('option');o.value=res.id;o.textContent=nom.trim();
