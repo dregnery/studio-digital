@@ -111,6 +111,7 @@
   <nav>
     <button class="active" data-view="pubs">Publications</button>
     <button data-view="annonces">Annonces</button>
+    <button data-view="webador">Webador</button>
     <button data-view="plan">Planificateur</button>
     <button data-view="photos">Photos</button>
     <button data-view="params">Paramètres</button>
@@ -135,6 +136,26 @@
     </div>
     <div class="panel"><h3>Brouillons en cours</h3><div id="annonce-drafts"><div class="spin">Chargement...</div></div></div>
     <div class="panel"><h3>Annonces en ligne</h3><div id="annonce-list"><div class="spin">Chargement...</div></div></div>
+  </section>
+
+  <section id="view-webador" class="hidden">
+    <div class="toolbar"><h2>Annonces Webador</h2><span class="count">transac-immo.com · paolamontanaimmobilier.com</span></div>
+    <div class="panel">
+      <h3>Envoyer une annonce sur Webador</h3>
+      <p style="font-size:12.5px;color:var(--ink-2);margin-bottom:14px">Choisissez une annonce de votre site, le site Webador et la page de commune. À votre validation, Claude crée le produit (type Service, votre texte intégral, photos) et l'ajoute à la galerie de la page — lors de son prochain passage, ou immédiatement si vous le lui demandez dans la conversation.</p>
+      <dl class="kv" style="grid-template-columns:180px 1fr">
+        <dt>Annonce *</dt><dd><select class="addr" id="wba-annonce"><option value="">Chargement...</option></select></dd>
+        <dt>Site Webador *</dt><dd><select class="addr" id="wba-site">
+          <option value="TRANSAC'IMMO (transac-immo.com)">TRANSAC'IMMO (transac-immo.com)</option>
+          <option value="PAOLA MONTANA IMMOBILIER (paolamontanaimmobilier.com)">PAOLA MONTANA IMMOBILIER (paolamontanaimmobilier.com)</option>
+        </select></dd>
+        <dt>Page de commune *</dt><dd><input class="addr" id="wba-page" placeholder="ex. La Mure, Grenoble, Fontaine... (la page 'Acheter > commune' du site Webador)"></dd>
+        <dt>Note (optionnel)</dt><dd><input class="addr" id="wba-note" placeholder="Consigne particulière pour Claude"></dd>
+      </dl>
+      <div class="actions"><button class="btn btn-ok" onclick="queueWebador()">✓ Valider pour publication Webador</button></div>
+      <p id="wba-status" style="font-size:13px;margin-top:8px"></p>
+    </div>
+    <div class="panel"><h3>File d'attente &amp; historique</h3><div id="wba-list"><div class="spin">Chargement...</div></div></div>
   </section>
 
   <section id="view-plan" class="hidden">
@@ -751,15 +772,63 @@ async function publishAnnonce(){
   }
 }
 
+// ---------- Webador ----------
+async function loadWebador(){
+  try{
+    if(!WF){
+      const site=(await wfFetch('sites')).sites[0];
+      const cols=(await wfFetch('sites/'+site.id+'/collections')).collections;
+      WF={siteId:site.id,propId:cols.find(c=>c.slug==='properties').id,refs:{}};
+    }
+    const items=(await wfFetch('collections/'+WF.propId+'/items?limit=25')).items||[];
+    window.__wbaItems=items;
+    document.getElementById('wba-annonce').innerHTML='<option value="">— choisir une annonce —</option>'+items.map(i=>`<option value="${i.id}">${esc(i.fieldData.name)}${i.fieldData.price?' — '+esc(i.fieldData.price):''}</option>`).join('');
+  }catch(e){document.getElementById('wba-annonce').innerHTML='<option>Erreur de chargement</option>';}
+  renderWebadorList();
+}
+function renderWebadorList(){
+  const q=STATE.publications.filter(p=>p.source==='webador');
+  document.getElementById('wba-list').innerHTML=q.length?q.map(p=>{
+    const c=p.contents||{};
+    return `<div class="slot"><div class="what"><b>${esc(p.title)}</b>
+      <p>${esc(c.site||'')} · page « ${esc(c.page||'')} »${c.note?' · '+esc(c.note):''}</p></div>
+      ${p.status==='published'?'<span class="badge b-published">Publié</span>':'<span class="badge b-approved" style="background:#e3effb;color:#1d5c9e">Validé — en attente de Claude</span>'}
+      ${p.status!=='published'?`<button class="btn btn-ghost" style="padding:7px 11px;font-size:12px" onclick="delWebador('${p.id}')">✕</button>`:''}
+    </div>`;
+  }).join(''):'<div class="spin" style="padding:14px">Aucune demande pour l\'instant.</div>';
+}
+async function queueWebador(){
+  const st=document.getElementById('wba-status');
+  const itemId=document.getElementById('wba-annonce').value;
+  const site=document.getElementById('wba-site').value;
+  const page=document.getElementById('wba-page').value.trim();
+  const note=document.getElementById('wba-note').value.trim();
+  if(!itemId||!page){st.textContent='⚠️ Choisissez une annonce et indiquez la page de commune.';st.style.color='#c0392b';return;}
+  const item=(window.__wbaItems||[]).find(i=>i.id===itemId);
+  const id='webador-'+itemId.slice(-8)+'-'+Date.now().toString(36).slice(-4);
+  await api('publications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    id, title:item?item.fieldData.name:'Annonce', status:'approved', source:'webador',
+    excerpt:'Publication Webador demandée', channels:[],
+    contents:{webflowItemId:itemId, site, page, note}})});
+  STATE=await api('state');
+  st.textContent='✓ Demande enregistrée — Claude publiera à son prochain passage (ou demandez-lui en direct).';st.style.color='var(--ok)';
+  renderWebadorList();
+}
+async function delWebador(id){
+  await api('publications/'+id,{method:'DELETE'});
+  STATE=await api('state');renderWebadorList();toast('Demande annulée');
+}
+
 // ---------- Navigation ----------
 document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
-  ['pubs','annonces','plan','photos','params','audit'].forEach(v=>$('#view-'+v).classList.add('hidden'));
+  ['pubs','annonces','webador','plan','photos','params','audit'].forEach(v=>$('#view-'+v).classList.add('hidden'));
   $('#view-detail').classList.add('hidden');
   $('#view-'+b.dataset.view).classList.remove('hidden');
   if(b.dataset.view==='audit'&&MAP)setTimeout(()=>MAP.invalidateSize(),100);
   if(b.dataset.view==='annonces')loadAnnonces();
+  if(b.dataset.view==='webador')loadWebador();
 }));
 
 // ---------- Démarrage ----------
