@@ -1,0 +1,12 @@
+name = "studio-digital"
+compatibility_date = "2026-07-01"
+pages_build_output_dir = "public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "studio-digital"
+database_id = "REMPLACER_APRES_CREATION"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "studio-digital-photos"
