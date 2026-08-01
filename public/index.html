@@ -450,8 +450,11 @@ function renderAnnonceForm(){
       <dt>Conditions</dt><dd><input class="addr" id="an-cond" value="Honoraires à la charge du vendeur — DPE disponible sur demande"></dd>
       <dt>Avantages</dt><dd><div style="display:flex;gap:10px;flex-wrap:wrap">${WF.refs.avantages.map(a=>`<label style="font-size:12.5px;display:flex;gap:5px;align-items:center"><input type="checkbox" class="an-av" value="${a.id}">${esc(a.name)}</label>`).join('')||'<i style="font-size:12px;color:var(--ink-3)">aucune liste d\'avantages</i>'}</div></dd>
       <dt>Agent</dt><dd><select class="addr" id="an-agent">${opt(WF.refs.agents,WF.refs.agents[0]&&WF.refs.agents[0].id)}</select></dd>
-      <dt>Photo principale *</dt><dd><select class="addr" id="an-photo">${'<option value="">— choisir dans la médiathèque —</option>'+ph.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('')}</select>
-        <p style="font-size:11.5px;color:var(--ink-3);margin-top:4px">Ajoutez d'abord les photos du bien dans l'onglet Photos.</p></dd>
+      <dt>Photo principale *</dt><dd>
+        <select class="addr" id="an-photo">${'<option value="">— choisir dans la médiathèque —</option>'+ph.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('')}</select>
+        <div style="margin-top:6px"><button class="btn btn-ghost" style="padding:7px 13px;font-size:12.5px" onclick="document.getElementById('an-file').click()">📁 Importer depuis mon ordinateur</button>
+        <input id="an-file" type="file" accept="image/*" multiple class="hidden" onchange="uploadForAnnonce(this.files)">
+        <span id="an-upload-status" style="font-size:12px;color:var(--ink-2);margin-left:8px"></span></div></dd>
       <dt>Galerie (jusqu'à 3)</dt><dd>${[1,2,3].map(i=>`<select class="addr an-gal" style="margin-bottom:6px">${'<option value="">— photo '+i+' (optionnel) —</option>'+ph.map(p=>`<option value="${p.key}">${esc(p.label||p.name)}</option>`).join('')}</select>`).join('')}</dd>
     </dl>
     <div class="actions"><button class="btn btn-ok" onclick="publishAnnonce()">🏠 Mettre en ligne sur le site</button></div>
@@ -466,6 +469,33 @@ async function renderAnnonceList(){
       <span class="theme-tag">${i.isDraft?'Brouillon':'En ligne'}</span></div>`).join(''):'<div class="spin">Aucune annonce.</div>';
 }
 const slugify=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60);
+async function uploadForAnnonce(files){
+  if(!files.length)return;
+  const st=document.getElementById('an-upload-status');
+  st.textContent='Envoi de '+files.length+' photo(s)...';
+  const newKeys=[];
+  for(const f of files){
+    const r=await fetch('/api/photos',{method:'POST',headers:{'Authorization':'Bearer '+KEY,'Content-Type':f.type||'image/jpeg','X-Photo-Name':encodeURIComponent(f.name)},body:f});
+    const j=await r.json();
+    if(j.key)newKeys.push({key:j.key,name:f.name});
+  }
+  STATE=await api('state');
+  // Ajouter les nouvelles photos à tous les sélecteurs du formulaire, sans perdre la saisie
+  const sels=[document.getElementById('an-photo'),...document.querySelectorAll('.an-gal')];
+  for(const sel of sels){
+    for(const nk of newKeys){
+      const o=document.createElement('option');o.value=nk.key;o.textContent=nk.name;
+      sel.appendChild(o);
+    }
+  }
+  if(newKeys.length){
+    document.getElementById('an-photo').value=document.getElementById('an-photo').value||newKeys[0].key;
+    const gals=[...document.querySelectorAll('.an-gal')];
+    newKeys.slice(1,4).forEach((nk,i)=>{if(gals[i]&&!gals[i].value)gals[i].value=nk.key;});
+  }
+  st.textContent='✓ '+newKeys.length+' photo(s) ajoutée(s) (aussi dans la médiathèque)';
+  renderPhotos();
+}
 async function newVille(){
   const sel=document.getElementById('an-ville');
   const nom=prompt('Nom de la nouvelle ville :');
