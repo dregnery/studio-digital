@@ -560,7 +560,23 @@ async function renderAnnonceList(){
     <div class="slot"><div class="what"><b>${esc(i.fieldData.name)}</b>
       <p>${esc(i.fieldData.price||'')} ${i.isDraft?'· brouillon':'· en ligne'}</p></div>
       <button class="btn btn-primary" style="padding:8px 14px;font-size:13px" onclick="editAnnonce('${i.id}')">Modifier</button>
+      <button class="btn btn-ghost" style="padding:8px 12px;font-size:13px;color:#c0392b" onclick="deleteAnnonce('${i.id}')">🗑 Supprimer</button>
       <span class="theme-tag">${i.isDraft?'Brouillon':'En ligne'}</span></div>`).join(''):'<div class="spin">Aucune annonce.</div>';
+}
+async function deleteAnnonce(id){
+  const i=(window.__anItems||[]).find(x=>x.id===id);
+  if(!i)return;
+  if(!confirm('Supprimer définitivement l\'annonce :\n\n« '+(i.fieldData.name||'')+' » ?\n\nElle disparaîtra de votre site immédiatement.'))return;
+  await wfFetch('collections/'+WF.propId+'/items/'+id+'/live',{method:'DELETE'}).catch(()=>{});
+  const r=await fetch('/api/webflow/collections/'+WF.propId+'/items/'+id,{method:'DELETE',headers:{'Authorization':'Bearer '+KEY}});
+  if(r.ok||r.status===204){
+    toast('Annonce supprimée du site ✓');
+    if(AN_EDIT_ID===id){AN_EDIT_ID=null;renderAnnonceForm();}
+    renderAnnonceList();
+  }else{
+    const j=await r.json().catch(()=>({}));
+    toast('Erreur : '+(j.message||r.status));
+  }
 }
 let AN_EDIT_ID=null;
 const stripHtml=h=>{const t=document.createElement('div');t.innerHTML=(h||'').replace(/<\/p>\s*<p>/g,'\n\n').replace(/<br\s*\/?>/g,'\n');return t.textContent.trim();};
