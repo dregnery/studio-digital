@@ -583,8 +583,78 @@ async function renderAnnonceList(){
     <div class="slot"><div class="what"><b>${esc(i.fieldData.name)}</b>
       <p>${esc(i.fieldData.price||'')} ${i.isDraft?'· brouillon':'· en ligne'}</p></div>
       <button class="btn btn-primary" style="padding:8px 14px;font-size:13px" onclick="editAnnonce('${i.id}')">Modifier</button>
+      <button class="btn btn-ghost" style="padding:8px 12px;font-size:13px" onclick="promoAnnonce('${i.id}')">📣 Réseaux</button>
       <button class="btn btn-ghost" style="padding:8px 12px;font-size:13px;color:#c0392b" onclick="deleteAnnonce('${i.id}')">🗑 Supprimer</button>
       <span class="theme-tag">${i.isDraft?'Brouillon':'En ligne'}</span></div>`).join(''):'<div class="spin">Aucune annonce.</div>';
+}
+// Promotion réseaux d'une annonce : visuel 1080x1350 + légendes par réseau → publication à valider
+async function promoAnnonce(id){
+  const i=(window.__anItems||[]).find(x=>x.id===id);
+  if(!i)return;
+  toast('Préparation du pack réseaux...');
+  const f=i.fieldData;
+  const villeName=(WF.refs.ville.find(v=>v.id===f.location)||{}).name||'';
+  const prix=f.price||(f['prix-du-bien-fixe']?Number(f['prix-du-bien-fixe']).toLocaleString('fr-FR')+' €':'');
+  const surface=f['property-area']||'';
+  // 1. Importer la photo principale dans la médiathèque (nécessaire pour le canvas sans blocage CORS)
+  let baseKey=null;
+  if(f['object-image']&&f['object-image'].url){
+    const r=await api('photos-import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:f['object-image'].url,name:'promo-src-'+slugify(f.name).slice(0,30)+'.jpg',label:'Promo '+f.name})});
+    if(r&&r.key)baseKey=r.key;
+  }
+  if(!baseKey){toast('Photo principale introuvable sur cette annonce');return;}
+  // 2. Composer le visuel 1080x1350 (photo + bandeau prix)
+  let cardKey=baseKey;
+  try{
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src='/api/photos/'+encodeURIComponent(baseKey);});
+    const W=1080,Hc=1350;
+    const cv=document.createElement('canvas');cv.width=W;cv.height=Hc;
+    const ctx=cv.getContext('2d');
+    // photo en cover
+    const ratio=Math.max(W/img.width,Hc/img.height);
+    const iw=img.width*ratio,ih=img.height*ratio;
+    ctx.drawImage(img,(W-iw)/2,(Hc-ih)/2,iw,ih);
+    // dégradé bas
+    const gr=ctx.createLinearGradient(0,Hc-420,0,Hc);
+    gr.addColorStop(0,'rgba(10,14,20,0)');gr.addColorStop(1,'rgba(10,14,20,0.92)');
+    ctx.fillStyle=gr;ctx.fillRect(0,Hc-420,W,420);
+    // liseré doré
+    ctx.fillStyle='#c9a24b';ctx.fillRect(60,Hc-330,6,250);
+    ctx.textBaseline='top';ctx.fillStyle='#ffffff';
+    ctx.font='600 34px Georgia, serif';
+    ctx.fillText(("TRANSAC'IMMO").toUpperCase(),90,Hc-330);
+    ctx.font='bold 52px Georgia, serif';
+    const titre=(f.name||'').length>34?(f.name||'').slice(0,33)+'…':(f.name||'');
+    ctx.fillText(titre,90,Hc-278);
+    ctx.font='bold 72px Georgia, serif';ctx.fillStyle='#c9a24b';
+    ctx.fillText(prix,90,Hc-206);
+    ctx.font='38px Georgia, serif';ctx.fillStyle='#ffffff';
+    ctx.fillText([villeName,surface].filter(Boolean).join(' · '),90,Hc-118);
+    ctx.font='34px Georgia, serif';ctx.fillStyle='#e8e8e8';
+    ctx.fillText('📞 06 67 93 45 66',90,Hc-66);
+    const blob=await new Promise(res=>cv.toBlob(res,'image/jpeg',0.88));
+    const up=await fetch('/api/photos',{method:'POST',headers:{'Authorization':'Bearer '+KEY,'Content-Type':'image/jpeg','X-Photo-Name':encodeURIComponent('carte-reseaux-'+slugify(f.name).slice(0,30)+'.jpg'),'X-Photo-Label':encodeURIComponent('Visuel réseaux — '+f.name)},body:blob});
+    const uj=await up.json();
+    if(uj.key)cardKey=uj.key;
+  }catch(e){/* visuel composé impossible : on garde la photo brute */}
+  // 3. Légendes par réseau
+  const resume=(f['property-description']||'').trim();
+  const vSlug=slugify(villeName||'').replace(/-/g,'');
+  const fb='🏡 '+f.name+'\n\n📍 '+[villeName,surface].filter(Boolean).join(' · ')+'\n💰 '+prix+'\n\n'+resume+'\n\n➡️ Toutes les photos et les détails sur notre site.\n📞 06 67 93 45 66\n\n#immobilier #'+(vSlug||'grenoble')+' #avendre #transacimmo';
+  const ig='🏡 NOUVEAUTÉ — '+(villeName||'à découvrir')+' 👇\n\n'+f.name+'\n💰 '+prix+(surface?'\n📐 '+surface:'')+'\n\n'+resume+'\n\n📩 DM ou ☎ 06 67 93 45 66 pour visiter\n\n#immobilier #'+(vSlug||'isere')+' #avendre #maison #appartement #grenoble #isere #achatimmobilier #investissement #transacimmo';
+  const li='Nouveau mandat — '+f.name+'.\n\n'+[villeName,surface,prix].filter(Boolean).join(' · ')+'\n\n'+resume+'\n\nInformations et visites : 06 67 93 45 66.\n\nDavid REGNERY — TRANSAC\'IMMO\n#immobilier #'+(vSlug||'grenoble');
+  const g='À découvrir : '+f.name+'. '+resume+' '+[villeName,surface].filter(Boolean).join(', ')+' — '+prix+'. Contactez-nous au 06 67 93 45 66 pour organiser une visite ou recevoir le dossier complet.';
+  // 4. Créer la publication à valider
+  const pubId='promo-'+id.slice(-8)+'-'+Date.now().toString(36).slice(-4);
+  await api('publications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    id:pubId,title:'📣 '+f.name,status:'review',source:'claude',
+    excerpt:'Promotion réseaux de l\'annonce — visuel + légendes prêts',
+    photo_key:cardKey,channels:['fb','ig','in'],
+    contents:{fb,ig,in:li,g}})});
+  STATE=await api('state');
+  toast('Pack réseaux prêt ✓ — validez-le dans l\'onglet Publications');
 }
 async function deleteAnnonce(id){
   const i=(window.__anItems||[]).find(x=>x.id===id);
