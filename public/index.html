@@ -743,7 +743,7 @@ async function publishAnnonce(){
     'prix-du-bien-fixe':prix,
     price:prix.toLocaleString('fr-FR')+' €',
     address:v('an-adresse'), location:ville,
-    'property-description':(v('an-resume')||desc.split('\n')[0]).slice(0,250),
+    'property-description':(v('an-resume')||desc.split('\n')[0]).slice(0,155),
     'object-description':desc.split(/\n{2,}/).map(par=>'<p>'+esc(par).replace(/\n/g,'<br>')+'</p>').join(''),
     'conditions-1':v('an-cond')||'Honoraires à la charge du vendeur',
     'property-area':v('an-surface')
