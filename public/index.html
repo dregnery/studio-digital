@@ -504,7 +504,18 @@ function renderAnnonceForm(d){
       <dt>Titre de l'annonce *</dt><dd><input class="addr" id="an-name" value="${esc(d.name||'')}" placeholder="Maison 5 pièces avec jardin — Saint-Égrève La Monta"></dd>
       <dt>Type de bien *</dt><dd><select class="addr" id="an-type">${opt(WF.refs.type,d.type)}</select></dd>
       <dt>Statut</dt><dd><select class="addr" id="an-statut">${opt(WF.refs.statut,d.statut||(WF.refs.statut.find(s=>/vendre/i.test(s.name))||{}).id)}</select></dd>
-      <dt>Ville *</dt><dd><select class="addr" id="an-ville" onchange="if(this.value==='__new__')newVille()">${opt(WF.refs.ville,d.ville)}<option value="__new__">＋ Ajouter une ville...</option></select></dd>
+      <dt>Ville *</dt><dd>
+        <select class="addr" id="an-ville" onchange="if(this.value==='__new__')showVilleCreator()">${opt(WF.refs.ville,d.ville)}<option value="__new__">＋ Ajouter une ville (par code postal)...</option></select>
+        <div id="ville-creator" class="hidden" style="margin-top:8px;padding:12px;background:#f7fbff;border:1px solid #cfe4f7;border-radius:10px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input class="addr" id="vc-cp" placeholder="Code postal (ex. 38120)" maxlength="5" style="width:170px" oninput="if(this.value.length===5)villeSearch()">
+            <select class="addr" id="vc-communes" style="flex:1;min-width:180px" disabled><option>— tapez d'abord le code postal —</option></select>
+            <button class="btn btn-ok" style="padding:9px 14px;font-size:13px" onclick="villeCreate()">Créer</button>
+            <button class="btn btn-ghost" style="padding:9px 12px;font-size:13px" onclick="hideVilleCreator()">Annuler</button>
+          </div>
+          <p id="vc-status" style="font-size:12px;color:var(--ink-3);margin-top:6px"></p>
+        </div>
+      </dd>
       <dt>Prix (€) *</dt><dd><input class="addr" id="an-prix" type="number" value="${esc(d.prix||'')}" placeholder="395000"></dd>
       <dt>Surface</dt><dd><input class="addr" id="an-surface" value="${esc(d.surface||'')}" placeholder="120 m²"></dd>
       <dt>Adresse / secteur</dt><dd><input class="addr" id="an-adresse" value="${esc(d.adresse||'')}" placeholder="Quartier La Monta"></dd>
@@ -584,28 +595,56 @@ async function uploadForGallery(input,ix){
   toast('Photo ajoutée à la galerie ✓');
   renderPhotos();
 }
-async function newVille(){
-  const sel=document.getElementById('an-ville');
-  const nom=prompt('Nom de la nouvelle ville :');
-  if(!nom){sel.value='';return;}
-  const cp=prompt('Code postal de '+nom.trim()+' :')||'';
+function showVilleCreator(){
+  document.getElementById('ville-creator').classList.remove('hidden');
+  document.getElementById('vc-cp').focus();
+}
+function hideVilleCreator(){
+  document.getElementById('ville-creator').classList.add('hidden');
+  document.getElementById('an-ville').value='';
+}
+async function villeSearch(){
+  const cp=document.getElementById('vc-cp').value.trim();
+  const sel=document.getElementById('vc-communes');
+  const st=document.getElementById('vc-status');
+  if(!/^\d{5}$/.test(cp)){sel.disabled=true;return;}
+  st.textContent='Recherche...';
+  try{
+    const communes=await fetch('https://geo.api.gouv.fr/communes?codePostal='+cp+'&fields=nom,codesPostaux').then(r=>r.json());
+    if(!communes.length){sel.innerHTML='<option>— aucune commune trouvée —</option>';sel.disabled=true;st.textContent='Code postal inconnu.';return;}
+    sel.innerHTML=communes.map(c=>`<option value="${esc(c.nom)}">${esc(c.nom)}</option>`).join('');
+    sel.disabled=false;
+    st.textContent=communes.length===1?'1 commune trouvée — cliquez « Créer ».':communes.length+' communes pour ce code postal — choisissez puis « Créer ».';
+  }catch(e){st.textContent='Annuaire des communes injoignable — réessayez.';}
+}
+async function villeCreate(){
+  const cp=document.getElementById('vc-cp').value.trim();
+  const sel=document.getElementById('vc-communes');
+  const nom=sel.disabled?'':sel.value;
+  const st=document.getElementById('vc-status');
+  if(!nom){st.textContent='Tapez un code postal valide et choisissez la commune.';return;}
+  if(WF.refs.ville.some(vv=>vv.name.toLowerCase()===nom.toLowerCase())){
+    const ex=WF.refs.ville.find(vv=>vv.name.toLowerCase()===nom.toLowerCase());
+    document.getElementById('an-ville').value=ex.id;hideVilleCreator();toast('« '+nom+' » existait déjà — sélectionnée.');return;
+  }
+  st.textContent='Création sur votre site...';
   const cols=(await wfFetch('sites/'+WF.siteId+'/collections')).collections;
   const villeCol=cols.find(c=>c.slug==='ville');
-  // style-version est obligatoire : on le copie depuis une ville existante
   const existing=(await wfFetch('collections/'+villeCol.id+'/items?limit=1')).items||[];
   const style=existing[0]?existing[0].fieldData['style-version']:undefined;
-  const fd={name:nom.trim(),slug:slugify(nom),'code-postal':cp.trim()};
+  const fd={name:nom,slug:slugify(nom),'code-postal':cp};
   if(style)fd['style-version']=style;
   const res=await wfFetch('collections/'+villeCol.id+'/items/live',{method:'POST',body:JSON.stringify({isDraft:false,isArchived:false,fieldData:fd})});
+  const villeSel=document.getElementById('an-ville');
   if(res.id){
-    WF.refs.ville.push({id:res.id,name:nom.trim()});
-    const o=document.createElement('option');o.value=res.id;o.textContent=nom.trim();
-    sel.insertBefore(o,sel.querySelector('option[value="__new__"]'));
-    sel.value=res.id;
-    toast('Ville « '+nom.trim()+' » créée sur votre site ✓');
+    WF.refs.ville.push({id:res.id,name:nom});
+    const o=document.createElement('option');o.value=res.id;o.textContent=nom;
+    villeSel.insertBefore(o,villeSel.querySelector('option[value="__new__"]'));
+    villeSel.value=res.id;
+    document.getElementById('ville-creator').classList.add('hidden');
+    toast('Ville « '+nom+' » ('+cp+') créée sur votre site ✓');
   }else{
-    sel.value='';
-    toast('Erreur : '+JSON.stringify(res.details||res.message).slice(0,120));
+    st.textContent='Erreur Webflow : '+JSON.stringify(res.details||res.message).slice(0,120);
   }
 }
 async function publishAnnonce(){
