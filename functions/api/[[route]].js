@@ -129,6 +129,25 @@ export async function onRequest(context) {
     return ok({ updated: key });
   }
 
+  // ------- PONT WEBFLOW (le jeton reste côté serveur : secret WEBFLOW_TOKEN) -------
+  if (route.startsWith('webflow/')) {
+    if (!env.WEBFLOW_TOKEN) return err('WEBFLOW_TOKEN non configuré', 500);
+    const wfPath = route.slice('webflow/'.length);
+    const init = {
+      method,
+      headers: {
+        'Authorization': 'Bearer ' + env.WEBFLOW_TOKEN,
+        'accept': 'application/json',
+        'content-type': 'application/json'
+      }
+    };
+    if (method === 'POST' || method === 'PATCH' || method === 'PUT') {
+      init.body = await request.text();
+    }
+    const wfRes = await fetch('https://api.webflow.com/v2/' + wfPath, init);
+    return new Response(await wfRes.text(), { status: wfRes.status, headers: JSON_HEADERS });
+  }
+
   // ------- RÉGLAGES -------
   if (route === 'settings' && method === 'PUT') {
     const b = await request.json();
