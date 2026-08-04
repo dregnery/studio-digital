@@ -121,7 +121,29 @@
 
 <main>
   <section id="view-pubs">
-    <div class="toolbar"><h2>Publications</h2><span class="count" id="pub-count">—</span></div>
+    <div class="toolbar"><h2>Publications</h2><span class="count" id="pub-count">—</span>
+      <button class="btn btn-primary" style="margin-left:auto" onclick="toggleNewPub()">➕ Nouvelle publicité</button></div>
+    <div class="panel hidden" id="newpub-panel">
+      <h3>Nouvelle publicité</h3>
+      <p style="font-size:12.5px;color:var(--ink-2);margin-bottom:14px">Rédigez votre publicité, choisissez la photo et les supports. « Enregistrer en brouillon » la garde pour plus tard ; « Valider » la met dans la file de publication de Claude (passage de 10h30, ou sur demande). Vous pourrez la modifier à tout moment en l'ouvrant.</p>
+      <dl class="kv" style="grid-template-columns:180px 1fr">
+        <dt>Titre *</dt><dd><input class="addr" id="np-title" placeholder="ex. Portes ouvertes samedi — Maison Rochepleine"></dd>
+        <dt>Texte *</dt><dd><textarea id="np-text" style="width:100%;min-height:140px" placeholder="Le texte de votre publicité. Il sera repris tel quel sur chaque support coché — demandez à Claude dans la conversation si vous voulez une version adaptée par réseau (longueur, hashtags, emojis)."></textarea></dd>
+        <dt>Photo</dt><dd>
+          <select class="addr" id="np-photo" style="width:auto;display:inline-block;max-width:60%"><option value="">— médiathèque —</option></select>
+          <label class="btn btn-ghost" style="display:inline-block;cursor:pointer">📁 Depuis l'ordinateur<input type="file" id="np-photo-file" accept="image/*" style="display:none" onchange="npPhotoFromFile(this.files)"></label>
+          <span id="np-photo-status" style="font-size:12px;color:var(--ink-2)"></span>
+        </dd>
+        <dt>Supports *</dt><dd id="np-chans" style="display:flex;gap:14px;flex-wrap:wrap"></dd>
+        <dt>Date prévue</dt><dd><input class="addr" type="datetime-local" id="np-date" style="width:auto"> <span style="font-size:12px;color:var(--ink-3)">(vide = dès que possible)</span></dd>
+      </dl>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="createNewPub('draft')">Enregistrer en brouillon</button>
+        <button class="btn btn-ok" onclick="createNewPub('approved')">✓ Valider pour publication</button>
+        <button class="btn btn-ghost" onclick="toggleNewPub()">Annuler</button>
+      </div>
+      <p id="np-status" style="font-size:13px;margin-top:8px"></p>
+    </div>
     <div class="grid" id="pub-grid"><div class="spin">Chargement...</div></div>
   </section>
 
@@ -280,6 +302,65 @@ function renderPubs(){
     </div>`).join(''):'<div class="spin">Aucune publication pour l\'instant.</div>';
 }
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+
+// ---------- Nouvelle publicité (créée par David) ----------
+function fillNewPubForm(){
+  const sel=$('#np-photo');
+  if(sel){
+    const cur=sel.value;
+    sel.innerHTML='<option value="">— médiathèque —</option>'+STATE.photos.map(ph=>`<option value="${ph.key}">${esc(ph.label||ph.name)}</option>`).join('');
+    if(cur)sel.value=cur;
+  }
+  const zone=$('#np-chans');
+  if(zone&&!zone.childElementCount){
+    zone.innerHTML=CHANNELS.map(c=>`<label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" class="np-chan" value="${c.id}"> ${c.name}</label>`).join('');
+  }
+}
+function toggleNewPub(){
+  const p=$('#newpub-panel');p.classList.toggle('hidden');
+  if(!p.classList.contains('hidden')){fillNewPubForm();window.scrollTo({top:0});}
+}
+async function npPhotoFromFile(files){
+  if(!files||!files.length)return;
+  const st=$('#np-photo-status');st.textContent='Envoi et optimisation...';
+  try{
+    const cf=await compressImage(files[0]);
+    const r=await fetch('/api/photos',{method:'POST',headers:{'Authorization':'Bearer '+KEY,'Content-Type':cf.type||'image/jpeg','X-Photo-Name':encodeURIComponent(cf.name),'X-Photo-Label':encodeURIComponent('Publicité')},body:cf});
+    const j=await r.json();
+    if(!r.ok)throw new Error(j.error||'envoi impossible');
+    STATE=await api('state');fillNewPubForm();
+    $('#np-photo').value=j.key;
+    st.textContent='✓ '+cf.name;
+  }catch(e){st.textContent='⚠ '+e.message;}
+}
+async function createNewPub(status){
+  const st=$('#np-status');
+  const title=$('#np-title').value.trim(), text=$('#np-text').value.trim();
+  const channels=[...document.querySelectorAll('.np-chan:checked')].map(cb=>cb.value);
+  if(!title||!text){st.textContent='⚠ Titre et texte obligatoires.';st.style.color='#c0392b';return;}
+  if(status!=='draft'&&!channels.length){st.textContent='⚠ Cochez au moins un support pour valider.';st.style.color='#c0392b';return;}
+  const contents={};for(const c of (channels.length?channels:CHANNELS.map(x=>x.id)))contents[c]=text;
+  const dateVal=$('#np-date').value;
+  const b={
+    id:'pub-'+Date.now().toString(36),
+    title, status,
+    excerpt:text.slice(0,140)+(text.length>140?'…':''),
+    photo_key:$('#np-photo').value||null,
+    channels, contents, source:'david',
+    planned_at:dateVal?new Date(dateVal).toISOString():null
+  };
+  st.textContent='Enregistrement...';st.style.color='var(--ink-2)';
+  const r=await api('publications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+  if(r&&r.id){
+    toast(status==='draft'?'Publicité enregistrée en brouillon':'Publicité validée ! Claude la publiera au prochain passage.');
+    $('#np-title').value='';$('#np-text').value='';$('#np-date').value='';$('#np-photo').value='';$('#np-photo-status').textContent='';
+    document.querySelectorAll('.np-chan:checked').forEach(cb=>cb.checked=false);
+    st.textContent='';
+    $('#newpub-panel').classList.add('hidden');
+    await boot();
+  }else{st.textContent='⚠ Erreur d\'enregistrement.';st.style.color='#c0392b';}
+}
 function openDetail(id){
   const p=STATE.publications.find(x=>x.id===id);
   const photos=STATE.photos;
