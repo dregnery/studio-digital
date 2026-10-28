@@ -6,6 +6,27 @@ const JSON_HEADERS = {
   'Access-Control-Allow-Origin': '*'
 };
 
+// --- Cache des reglages (table settings) ---
+// La table est petite mais relue a chaque appel de /api/state.
+// TTL court : une ecriture faite sur un autre isolat est vue au bout de SETTINGS_TTL_MS au pire.
+const SETTINGS_TTL_MS = 60000;
+let _settingsCache = null;
+let _settingsCacheAt = 0;
+function invalidateSettingsCache() {
+  _settingsCache = null;
+  _settingsCacheAt = 0;
+}
+async function readSettings(env) {
+  const now = Date.now();
+  if (_settingsCache && (now - _settingsCacheAt) < SETTINGS_TTL_MS) return _settingsCache;
+  const res = await env.DB.prepare('SELECT key, value FROM settings').all();
+  const map = {};
+  for (const s of res.results) map[s.key] = s.value;
+  _settingsCache = map;
+  _settingsCacheAt = now;
+  return map;
+}
+
 function ok(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: JSON_HEADERS });
 }
@@ -50,14 +71,18 @@ export async function onRequest(context) {
 
   // ------- ÉTAT GLOBAL -------
   if (route === 'state' && method === 'GET') {
-    const [pubs, photos, slots, settings] = await Promise.all([
+    const url2 = new URL(request.url);
+    const limParam = parseInt(url2.searchParams.get('photos_limit') || '0', 10);
+    const photosLimit = (limParam > 0 && limParam <= 5000) ? limParam : 0;
+    const photosSql = photosLimit
+      ? 'SELECT key, name, content_type, size, label, last_used_at, uploaded_at FROM photos ORDER BY uploaded_at DESC LIMIT ' + photosLimit
+      : 'SELECT key, name, content_type, size, label, last_used_at, uploaded_at FROM photos ORDER BY uploaded_at DESC';
+    const [pubs, photos, slots, settingsMap] = await Promise.all([
       env.DB.prepare('SELECT * FROM publications ORDER BY COALESCE(planned_at, published_at) DESC').all(),
-      env.DB.prepare('SELECT * FROM photos ORDER BY uploaded_at DESC').all(),
+      env.DB.prepare(photosSql).all(),
       env.DB.prepare("SELECT * FROM slots WHERE date >= date('now','-1 day') ORDER BY date").all(),
-      env.DB.prepare('SELECT * FROM settings').all()
+      readSettings(env)
     ]);
-    const settingsMap = {};
-    for (const s of settings.results) settingsMap[s.key] = s.value;
     return ok({
       publications: pubs.results.map(p => ({ ...p, channels: JSON.parse(p.channels), contents: JSON.parse(p.contents) })),
       photos: photos.results,
@@ -101,6 +126,22 @@ export async function onRequest(context) {
     vals.push(id);
     await env.DB.prepare(`UPDATE publications SET ${fields.join(',')}, updated_at=datetime('now') WHERE id=?`).bind(...vals).run();
     return ok({ updated: id });
+  }
+
+  // ------- LISTE PAGINEE DES PHOTOS -------
+  // /api/photos-list?limit=50&offset=0  -> { total, limit, offset, photos: [...] }
+  if (route === 'photos-list' && method === 'GET') {
+    const u = new URL(request.url);
+    let limit = parseInt(u.searchParams.get('limit') || '50', 10);
+    let offset = parseInt(u.searchParams.get('offset') || '0', 10);
+    if (!Number.isFinite(limit) || limit <= 0) limit = 50;
+    if (limit > 500) limit = 500;
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
+    const [rows, count] = await Promise.all([
+      env.DB.prepare('SELECT key, name, content_type, size, label, last_used_at, uploaded_at FROM photos ORDER BY uploaded_at DESC LIMIT ? OFFSET ?').bind(limit, offset).all(),
+      env.DB.prepare('SELECT COUNT(*) AS n FROM photos').first()
+    ]);
+    return ok({ total: (count && count.n) || 0, limit, offset, photos: rows.results });
   }
 
   // ------- PHOTOS : import depuis une URL (le serveur va chercher l'image, pas de CORS) -------
@@ -177,6 +218,7 @@ export async function onRequest(context) {
       env.DB.prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind(k, String(v ?? ''))
     );
     await env.DB.batch(stmts);
+    invalidateSettingsCache();
     return ok({ saved: Object.keys(b) });
   }
 
